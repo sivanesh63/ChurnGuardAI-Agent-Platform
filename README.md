@@ -341,19 +341,6 @@ response = execute_and_summarize(prompt, df, model)
 3. Add environment variables in dashboard
 4. Deploy!
 
-### Docker (Optional)
-
-```dockerfile
-FROM python:3.11-slim
-
-WORKDIR /app
-COPY requirements.txt .
-RUN pip install -r requirements.txt
-
-COPY . .
-CMD ["streamlit", "run", "app.py", "--server.port=8501", "--server.address=0.0.0.0"]
-```
-
 ## 📝 Changelog
 
 ### Latest Updates
@@ -364,20 +351,4 @@ CMD ["streamlit", "run", "app.py", "--server.port=8501", "--server.address=0.0.0
 - ✅ Improved SQL query generation with fallbacks
 - ✅ Duplicate prevention in queries
 
-## 🤝 Contributing
 
-1. Fork the repository
-2. Create feature branch: `git checkout -b feature/new-feature`
-3. Follow existing code structure
-4. Test thoroughly
-5. Submit pull request
-
-## 📄 License
-
-MIT License - See LICENSE file for details
-
----
-
-**Built with ❤️ using Streamlit, Gemini AI, Turso DB, and Twilio**
-
-*Last Updated: November 2024*

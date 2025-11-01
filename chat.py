@@ -123,16 +123,32 @@ def handle_user_query(prompt: str, model):
                                         f"Answer concisely about what data exists in the database."
                                     )
                                 elif show_data:
+                                    # Check if this is a churn-related query
+                                    is_churn_related = any(keyword in prompt.lower() for keyword in [
+                                        "churn", "high risk", "high-risk", "at risk", "risk customer",
+                                        "churn risk", "likely to churn", "retention", "losing customer"
+                                    ])
+                                    churn_context = ""
+                                    if is_churn_related:
+                                        churn_context = "Note: This query uses predictive churn analysis based on data characteristics to identify high-risk customers. "
                                     summary_prompt = (
                                         f"User asked to see data: {prompt}\n"
-                                        f"SQL executed: {sql}\n"
+                                        f"{churn_context}SQL executed: {sql}\n"
                                         f"Preview:\n{preview}\n"
                                         f"Provide a brief 1-sentence description. The actual data will be shown separately."
                                     )
                                 else:
+                                    # Check if this is a churn-related query
+                                    is_churn_related = any(keyword in prompt.lower() for keyword in [
+                                        "churn", "high risk", "high-risk", "at risk", "risk customer",
+                                        "churn risk", "likely to churn", "retention", "losing customer"
+                                    ])
+                                    churn_context = ""
+                                    if is_churn_related:
+                                        churn_context = "Note: This query uses predictive churn analysis based on data characteristics (e.g., low engagement, payment issues, support tickets) to identify high-risk customers, since no explicit churn column exists in the dataset. "
                                     summary_prompt = (
                                         f"Answer succinctly (2-4 sentences) based strictly on the query result.\n"
-                                        f"User asked: {prompt}\nSQL executed: {sql}\nPreview:\n{preview}"
+                                        f"{churn_context}User asked: {prompt}\nSQL executed: {sql}\nPreview:\n{preview}"
                                     )
                                 
                                 summary = model.generate_content(summary_prompt).text

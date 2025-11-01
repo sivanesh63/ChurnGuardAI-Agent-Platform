@@ -375,9 +375,169 @@ def _ensure_distinct(sql: str) -> str:
     return re.sub(r"^\s*SELECT\s+", "SELECT DISTINCT ", sql, flags=re.IGNORECASE)
 
 
+def _is_churn_related_query(prompt: str) -> bool:
+    """Check if the query is about churn, high-risk customers, or customer retention"""
+    if not prompt:
+        return False
+    p = prompt.lower()
+    churn_keywords = [
+        "churn", "high risk", "high-risk", "at risk", "at-risk",
+        "risk customer", "churn risk", "likely to churn", "churn prediction",
+        "churn probability", "retention", "retain", "losing customer",
+        "customer likely to leave", "vulnerable customer", "unhappy customer"
+    ]
+    return any(keyword in p for keyword in churn_keywords)
+
+
+def _has_churn_column(table_schema_sql: str) -> bool:
+    """Check if the table has a churn-related column"""
+    if not table_schema_sql:
+        return False
+    schema_lower = table_schema_sql.lower()
+    churn_indicators = [
+        "churn", "churned", "churn_probability", "churn_risk", "is_churn",
+        "will_churn", "churn_score", "retention"
+    ]
+    return any(indicator in schema_lower for indicator in churn_indicators)
+
+
+def _generate_predictive_churn_sql(table_name: str, table_schema_sql: str, model) -> str:
+    """
+    Generate SQL to identify high-risk customers using LLM-based predictive analysis.
+    Analyzes data characteristics to predict churn risk when no churn column exists.
+    """
+    logger.info(f"[DB] Generating predictive churn SQL for table: {table_name}")
+    
+    columns = _parse_columns_from_ddl(table_schema_sql)
+    column_names = [col[0] for col in columns]
+    column_types = {col[0]: col[1] for col in columns}
+    
+    # Build column information for LLM
+    schema_desc = "\n".join([f"- {name} ({col_type})" for name, col_type in columns])
+    
+    prompt = f"""You are a data analyst expert in customer churn prediction. Analyze the following table schema and generate a SQLite SELECT query to identify high-risk customers likely to churn.
+
+Table name: `{table_name}`
+Table schema:
+{schema_desc}
+
+Your task:
+1. Analyze the available columns and identify which ones indicate churn risk based on common patterns:
+   - Low engagement metrics (low activity, few transactions, low usage)
+   - Payment issues (payment failures, overdue, pending payments)
+   - Support tickets or complaints
+   - Long tenure with declining activity
+   - High charges with low value perception
+   - Recent negative changes (downgrades, cancellations)
+
+2. Generate a SQL SELECT query that identifies high-risk customers using WHERE conditions based on:
+   - Thresholds for numeric columns (e.g., low engagement scores, high charges relative to activity)
+   - Status fields (e.g., inactive, suspended, payment_failed)
+   - Date-based patterns (e.g., last_login > 90 days ago)
+   - Combination of multiple risk indicators
+
+3. Return ONLY a single SQLite SELECT statement with:
+   - All relevant columns for customer identification (name, email, phone, customer_id)
+   - WHERE clause with logical conditions (AND/OR) to identify high-risk customers
+   - ORDER BY to prioritize highest risk customers
+   - LIMIT 200
+
+Example patterns to look for:
+- Low engagement: engagement_score < 3, last_activity_days > 60
+- Payment issues: payment_status = 'failed' OR payment_status = 'overdue'
+- Support issues: complaint_count > 2, support_tickets > 0
+- Value mismatch: monthly_charges > 100 AND usage_minutes < 60
+- Declining usage: recent_activity < average_activity * 0.5
+
+Generate the SQL query now:"""
+
+    try:
+        response = model.generate_content(prompt)
+        sql = _sanitize_sql(response.text)
+        logger.debug(f"[DB] LLM-generated predictive churn SQL: {sql}")
+        
+        # Validate and ensure it's a safe SELECT
+        if not _is_safe_select(sql):
+            logger.warning("[DB] LLM generated unsafe SQL, using fallback")
+            return _fallback_predictive_churn_sql(table_name, column_names, column_types)
+        
+        # Ensure table name is correct
+        if table_name not in sql.upper() and " FROM " in sql.upper():
+            # Replace any table name in the SQL with the correct one
+            sql = re.sub(r"FROM\s+`?\w+`?", f"FROM `{table_name}`", sql, flags=re.IGNORECASE)
+        elif " FROM " not in sql.upper():
+            sql = f"SELECT * FROM `{table_name}` WHERE 1=0"  # Safe fallback
+        
+        # Ensure DISTINCT
+        sql = _ensure_distinct(sql)
+        
+        logger.info(f"[DB] Final predictive churn SQL: {sql}")
+        return sql
+    except Exception as e:
+        logger.error(f"[DB] Error generating predictive churn SQL: {e}", exc_info=True)
+        return _fallback_predictive_churn_sql(table_name, column_names, column_types)
+
+
+def _fallback_predictive_churn_sql(table_name: str, column_names: list, column_types: dict) -> str:
+    """Fallback SQL for churn prediction when LLM generation fails"""
+    logger.info("[DB] Using fallback predictive churn SQL")
+    
+    # Identify potential risk indicator columns
+    risk_indicators = []
+    
+    # Common patterns for churn risk
+    low_engagement = [c for c in column_names if any(x in c.lower() for x in ['engagement', 'activity', 'usage', 'score'])]
+    payment_issues = [c for c in column_names if any(x in c.lower() for x in ['payment', 'status', 'due', 'overdue'])]
+    support_issues = [c for c in column_names if any(x in c.lower() for x in ['complaint', 'ticket', 'support', 'issue'])]
+    charges = [c for c in column_names if any(x in c.lower() for x in ['charge', 'amount', 'cost', 'price'])]
+    
+    conditions = []
+    
+    # Add conditions for low engagement (if numeric columns exist)
+    for col in low_engagement[:2]:  # Limit to 2 columns
+        if column_types.get(col, '').upper() in ('REAL', 'INTEGER', 'NUMERIC'):
+            conditions.append(f"`{col}` < (SELECT AVG(`{col}`) * 0.7 FROM `{table_name}` WHERE `{col}` IS NOT NULL)")
+    
+    # Add conditions for payment issues
+    for col in payment_issues[:1]:
+        if column_types.get(col, '').upper() in ('TEXT', 'VARCHAR', 'CHAR'):
+            conditions.append(f"(`{col}` LIKE '%fail%' OR `{col}` LIKE '%overdue%' OR `{col}` LIKE '%pending%')")
+    
+    # Add conditions for support issues (high count)
+    for col in support_issues[:1]:
+        if column_types.get(col, '').upper() in ('REAL', 'INTEGER', 'NUMERIC'):
+            conditions.append(f"`{col}` > 1")
+    
+    if conditions:
+        where_clause = " OR ".join(conditions)
+        return f"SELECT DISTINCT * FROM `{table_name}` WHERE {where_clause} ORDER BY 1 LIMIT 200"
+    else:
+        # Very basic fallback: return customers with any missing or zero values in numeric columns
+        numeric_cols = [c for c in column_names if column_types.get(c, '').upper() in ('REAL', 'INTEGER', 'NUMERIC')]
+        if numeric_cols:
+            zero_conditions = [f"`{col}` = 0 OR `{col}` IS NULL" for col in numeric_cols[:3]]
+            where_clause = " OR ".join(zero_conditions)
+            return f"SELECT DISTINCT * FROM `{table_name}` WHERE {where_clause} LIMIT 200"
+    
+    # Last resort: return limited results
+    return f"SELECT DISTINCT * FROM `{table_name}` LIMIT 200"
+
+
 def generate_select_sql_from_prompt(prompt: str, table_name: str, table_schema_sql: str, model, prior_error: str = None) -> str:
     logger.info(f"[DB] Generating SELECT SQL from prompt: {prompt[:100]}...")
     logger.debug(f"[DB] Table schema: {table_schema_sql}")
+
+    # Check if query is churn-related and if churn column exists
+    is_churn_query = _is_churn_related_query(prompt)
+    has_churn_col = _has_churn_column(table_schema_sql)
+    
+    # If churn-related query and no churn column exists, use predictive churn analysis
+    if is_churn_query and not has_churn_col:
+        logger.info("[DB] Churn-related query detected without churn column - using predictive analysis")
+        try:
+            return _generate_predictive_churn_sql(table_name, table_schema_sql, model)
+        except Exception as e:
+            logger.warning(f"[DB] Predictive churn analysis failed: {e}, falling back to regular SQL generation")
 
     target_values = _extract_target_values(prompt)
     id_columns = _likely_identifier_columns(table_schema_sql)

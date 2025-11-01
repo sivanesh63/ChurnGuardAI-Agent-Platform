@@ -1,0 +1,65 @@
+[
+  {
+    "type": "sms",
+    "timestamp": "2025-10-29T13:19:12.215400",
+    "targets": 29,
+    "sent": 0,
+    "failed": 29
+  },
+  {
+    "type": "sms",
+    "timestamp": "2025-10-29T13:27:10.600178",
+    "targets": 29,
+    "sent": 0,
+    "failed": 29
+  },
+  {
+    "type": "sms",
+    "timestamp": "2025-10-29T13:30:53.864873",
+    "targets": 1,
+    "sent": 0,
+    "failed": 1
+  },
+  {
+    "type": "sms",
+    "timestamp": "2025-10-29T13:48:02.261819",
+    "targets": 1,
+    "sent": 0,
+    "failed": 1
+  },
+  {
+    "type": "sms",
+    "timestamp": "2025-10-29T13:51:43.602031",
+    "targets": 1,
+    "sent": 0,
+    "failed": 1
+  },
+  {
+    "type": "sms",
+    "timestamp": "2025-10-29T13:56:19.558361",
+    "targets": 1,
+    "sent": 0,
+    "failed": 1
+  },
+  {
+    "type": "sms",
+    "timestamp": "2025-10-29T13:56:55.252363",
+    "targets": 1,
+    "sent": 0,
+    "failed": 1
+  },
+  {
+    "type": "sms",
+    "timestamp": "2025-10-29T13:57:56.893515",
+    "targets": 1,
+    "sent": 0,
+    "failed": 1
+  },
+  {
+    "type": "sms",
+    "timestamp": "2025-10-29T14:04:23.364123",
+    "targets": 1,
+    "sent": 0,
+    "failed": 1
+  }
+]

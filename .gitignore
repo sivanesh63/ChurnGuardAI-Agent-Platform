@@ -1,0 +1,5 @@
+/.env
+/db.py
+/UNUSED_FILES.md
+/venv
+/__pycache__

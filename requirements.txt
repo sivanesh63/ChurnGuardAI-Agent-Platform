@@ -1,0 +1,8 @@
+streamlit
+pandas
+numpy
+google-generativeai
+twilio
+python-dotenv
+libsql-client
+flask

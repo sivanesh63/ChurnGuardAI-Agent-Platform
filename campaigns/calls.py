@@ -56,6 +56,78 @@ def _detect_name_column(df):
     return None
 
 
+def _normalize_phone_number(phone_str: str) -> tuple:
+    """
+    Normalize phone number to E.164 format (with country code).
+    Supports various input formats:
+    - +1234567890 (already in E.164)
+    - +91 1234567890 (with spaces/dashes)
+    - 911234567890 (without +)
+    - 00911234567890 (with 00 prefix)
+    - 1234567890 (assumes it might be missing country code)
+    
+    Returns:
+        tuple: (normalized_phone: str, is_valid: bool, error_message: str)
+    """
+    if not phone_str:
+        return ("", False, "Empty phone number")
+    
+    # Convert to string and remove all spaces, dashes, parentheses, dots
+    phone = re.sub(r'[\s\-\(\)\.]', '', str(phone_str))
+    
+    if not phone:
+        return ("", False, "Empty after cleaning")
+    
+    # If already in E.164 format (starts with +), validate and return
+    if phone.startswith("+"):
+        # Remove + and validate it contains only digits
+        digits = phone[1:]
+        if digits and digits.isdigit() and len(digits) >= 7 and len(digits) <= 15:
+            logger.info(f"✅ Phone already in E.164 format: {phone}")
+            return (phone, True, "")
+        else:
+            return ("", False, f"Invalid E.164 format: {phone}")
+    
+    # Handle 00 prefix (international dialing code, remove it)
+    if phone.startswith("00"):
+        phone = "+" + phone[2:]
+        digits = phone[1:]
+        if digits and digits.isdigit() and len(digits) >= 7 and len(digits) <= 15:
+            logger.info(f"✅ Converted 00 prefix to E.164: {phone}")
+            return (phone, True, "")
+        else:
+            return ("", False, f"Invalid format after 00 removal: {phone}")
+    
+    # If it starts with country code digits (no +), try to add +
+    # Common patterns: starts with 1-3 digits (country code) followed by 7-14 digits (phone)
+    # This is a heuristic - if it's 10-15 digits, assume it has country code
+    if phone.isdigit():
+        if len(phone) >= 10 and len(phone) <= 15:
+            # Add + prefix
+            normalized = "+" + phone
+            logger.info(f"✅ Added + prefix to phone: {normalized}")
+            return (normalized, True, "")
+        elif len(phone) >= 7 and len(phone) < 10:
+            # Too short, might be missing country code
+            return ("", False, f"Phone too short, possibly missing country code: {phone}")
+        else:
+            return ("", False, f"Invalid phone length: {len(phone)} digits")
+    
+    # Contains non-digit characters (excluding + which we already handled)
+    return ("", False, f"Contains invalid characters: {phone_str}")
+
+
+def _validate_phone_for_twilio(phone: str) -> bool:
+    """
+    Validate phone number format for Twilio.
+    Twilio requires E.164 format: +[country code][number]
+    """
+    if not phone or not phone.startswith("+"):
+        return False
+    digits = phone[1:]
+    return digits.isdigit() and len(digits) >= 7 and len(digits) <= 15
+
+
 def send_call_campaign(targets_df, phone_col, name_col=None, model=None):
     """
     Send LLM-powered call campaign with recording and transcription.
@@ -79,21 +151,31 @@ def send_call_campaign(targets_df, phone_col, name_col=None, model=None):
         
         for _, row in targets_df.iterrows():
             try:
-                phone = str(row.get(phone_col, "")).strip().replace(" ", "").replace("-", "")
-                if phone.startswith("+91"):
-                    phone = phone[3:]
-                if not re.fullmatch(r"\d{10}", phone):
+                phone_raw = row.get(phone_col, "")
+                if pd.isna(phone_raw):
                     failed_count += 1
-                    failed_details.append(f"Invalid phone: {phone}")
+                    failed_details.append(f"Empty phone number in row")
                     continue
                 
-                # Get customer data for personalization
-                customer_name = str(row.get(name_col, "")).strip() if name_col and name_col in row else None
-                customer_data = row.to_dict() if name_col else None
+                # Normalize phone number to E.164 format (supports all country codes)
+                normalized_phone, is_valid, error_msg = _normalize_phone_number(phone_raw)
                 
-                # Generate LLM call script
-                script = generate_call_script(customer_name, customer_data, model)
-                logger.info(f"📝 Generated script for {phone}: {script.get('full_script', 'N/A')[:50]}...")
+                if not is_valid:
+                    failed_count += 1
+                    failed_details.append(f"Invalid phone '{phone_raw}': {error_msg}")
+                    logger.warning(f"⚠️ Invalid phone format: {phone_raw} - {error_msg}")
+                    continue
+                
+                # Validate for Twilio
+                if not _validate_phone_for_twilio(normalized_phone):
+                    failed_count += 1
+                    failed_details.append(f"Invalid Twilio format: {normalized_phone}")
+                    logger.warning(f"⚠️ Phone not in Twilio E.164 format: {normalized_phone}")
+                    continue
+                
+                # Generate LLM call script (standard greeting, no personalization)
+                script = generate_call_script(model=model)
+                logger.info(f"📝 Generated script for {normalized_phone}: {script.get('full_script', 'N/A')[:50]}...")
                 
                 # Create TwiML with recording and transcription
                 twiml = _create_call_twiml(
@@ -102,16 +184,17 @@ def send_call_campaign(targets_df, phone_col, name_col=None, model=None):
                 )
                 
                 # Place call with recording and transcription enabled (transcription via API)
+                # normalized_phone is already in E.164 format (e.g., +1234567890, +911234567890, +441234567890)
                 call = client.calls.create(
                     twiml=twiml,
-                    to=f"+91{phone}",
+                    to=normalized_phone,  # Use normalized phone directly (already has country code)
                     from_=from_phone,
                     record=True  # Enable call recording (transcription handled automatically)
                 )
                 
-                logger.info(f"📞 Call placed to +91{phone} (SID: {call.sid})")
+                logger.info(f"📞 Call placed to {normalized_phone} (SID: {call.sid})")
                 call_details.append({
-                    "phone": f"+91{phone}",
+                    "phone": normalized_phone,
                     "sid": call.sid,
                     "status": call.status,
                     "script": script["full_script"],
@@ -121,8 +204,9 @@ def send_call_campaign(targets_df, phone_col, name_col=None, model=None):
                 sent_count += 1
             except Exception as e:
                 failed_count += 1
-                failed_details.append(f"{phone}: {e}")
-                logger.error(f"❌ Failed to call {phone}: {e}")
+                phone_display = str(row.get(phone_col, "Unknown")) if phone_col else "Unknown"
+                failed_details.append(f"{phone_display}: {e}")
+                logger.error(f"❌ Failed to call {phone_display}: {e}")
         
         result = {
             "success": True,
@@ -418,11 +502,15 @@ def render_call_campaign(df, model):
                     # Wait a bit for transcriptions to process
                     time.sleep(2)
                     try:
-                        transcripts = fetch_transcripts_from_twilio(limit=20)
+                        # If we have last campaign SIDs, only fetch those; otherwise fetch recent
+                        if "last_call_sids" in st.session_state and st.session_state.last_call_sids:
+                            transcripts = fetch_transcripts_from_twilio(call_sids=st.session_state.last_call_sids)
+                        else:
+                            transcripts = fetch_transcripts_from_twilio(limit=20)
+                        
                         if transcripts:
-                            if "call_transcripts" not in st.session_state:
-                                st.session_state.call_transcripts = []
-                            st.session_state.call_transcripts.extend(transcripts)
+                            # Replace transcripts (only show last campaign)
+                            st.session_state.call_transcripts = transcripts
                             st.success(f"✅ Fetched {len(transcripts)} transcript(s)!")
                         else:
                             st.warning("⚠️ No transcripts found. Possible reasons:\n- Calls haven't completed yet (wait 1-2 minutes)\n- Transcription is still processing\n- No calls were recorded\n\nCheck the logs for more details.")
@@ -438,9 +526,8 @@ def render_call_campaign(df, model):
                         try:
                             transcripts = fetch_transcripts_from_twilio(call_sids=st.session_state.last_call_sids)
                             if transcripts:
-                                if "call_transcripts" not in st.session_state:
-                                    st.session_state.call_transcripts = []
-                                st.session_state.call_transcripts.extend(transcripts)
+                                # Replace transcripts in session state (only keep last campaign)
+                                st.session_state.call_transcripts = transcripts
                                 st.success(f"✅ Fetched {len(transcripts)} transcript(s) for last campaign!")
                             else:
                                 st.warning(f"⚠️ No transcripts found for {len(st.session_state.last_call_sids)} call(s).\n- Transcription may still be processing (wait 1-2 minutes)\n- Check if recordings exist for these calls\n- Verify transcription is enabled in TwiML")
@@ -454,23 +541,46 @@ def render_call_campaign(df, model):
         if "call_transcripts" in st.session_state and st.session_state.call_transcripts:
             st.markdown("---")
             st.markdown("#### 📋 Call Transcripts")
+            
+            # Filter transcripts to only show last campaign if available
+            transcripts_to_show = []
+            if "last_call_sids" in st.session_state and st.session_state.last_call_sids:
+                # Filter to only show transcripts from the last campaign
+                last_campaign_sids = set(st.session_state.last_call_sids)
+                for t in st.session_state.call_transcripts:
+                    call_sid = t.get("call_sid", "")
+                    if call_sid in last_campaign_sids:
+                        transcripts_to_show.append(t)
+                
+                if not transcripts_to_show:
+                    # Fallback: show all if no matches (maybe transcripts from different campaign format)
+                    logger.info("No transcripts matched last campaign SIDs, showing all transcripts")
+                    transcripts_to_show = st.session_state.call_transcripts
+            else:
+                # No last campaign info, show all
+                transcripts_to_show = st.session_state.call_transcripts
+            
             # Deduplicate by transcription_sid
             seen = set()
             unique_transcripts = []
-            for t in st.session_state.call_transcripts:
+            for t in transcripts_to_show:
                 sid = t.get("transcription_sid") or t.get("call_sid")
                 if sid and sid not in seen:
                     seen.add(sid)
                     unique_transcripts.append(t)
             
-            for transcript in unique_transcripts[-10:]:  # Show last 10
-                phone_display = transcript.get('phone', 'Unknown')
-                timestamp_display = transcript.get('timestamp', 'N/A')
-                if isinstance(timestamp_display, str) and len(timestamp_display) > 19:
-                    timestamp_display = timestamp_display[:19]
-                with st.expander(f"📞 {phone_display} - {timestamp_display}"):
-                    if transcript.get("transcript"):
-                        st.markdown(f"**Transcript:** {transcript['transcript']}")
-                    st.json(transcript)
+            if unique_transcripts:
+                st.info(f"📊 Showing {len(unique_transcripts)} transcript(s) from last campaign")
+                for transcript in unique_transcripts[-10:]:  # Show last 10
+                    phone_display = transcript.get('phone', 'Unknown')
+                    timestamp_display = transcript.get('timestamp', 'N/A')
+                    if isinstance(timestamp_display, str) and len(timestamp_display) > 19:
+                        timestamp_display = timestamp_display[:19]
+                    with st.expander(f"📞 {phone_display} - {timestamp_display}"):
+                        if transcript.get("transcript"):
+                            st.markdown(f"**Transcript:** {transcript['transcript']}")
+                        st.json(transcript)
+            else:
+                st.info("ℹ️ No transcripts to display. Wait 1-2 minutes after calls complete and try fetching again.")
 
 

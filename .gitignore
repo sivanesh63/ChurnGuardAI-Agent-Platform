@@ -1,5 +1,8 @@
 /.env
+/.streamlit/secrets.toml
 /db.py
 /UNUSED_FILES.md
 /venv
 /__pycache__
+*.pyc
+.pytest_cache

@@ -4,15 +4,16 @@ import logging
 import pandas as pd
 import streamlit as st
 from twilio.rest import Client
+from core.secrets import get_secret
 
 logger = logging.getLogger(__name__)
 
 
 def send_sms_campaign(targets_df, phone_col, name_col=None):
     try:
-        account_sid = os.getenv("TWILIO_ACCOUNT_SID")
-        auth_token = os.getenv("TWILIO_AUTH_TOKEN")
-        from_phone = os.getenv("TWILIO_PHONE_NUMBER")
+        account_sid = get_secret("TWILIO_ACCOUNT_SID")
+        auth_token = get_secret("TWILIO_AUTH_TOKEN")
+        from_phone = get_secret("TWILIO_PHONE_NUMBER")
         if not all([account_sid, auth_token, from_phone]):
             logger.error("❌ Missing Twilio credentials.")
             return {"success": False, "sent": 0, "failed": 0, "error": "Missing Twilio credentials in .env file"}

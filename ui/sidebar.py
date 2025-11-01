@@ -2,9 +2,7 @@ import os
 import streamlit as st
 import pandas as pd
 import google.generativeai as genai
-from dotenv import load_dotenv
-
-load_dotenv()
+from core.secrets import get_secret, validate_secrets
 
 @st.cache_data
 def preprocess_csv(uploaded_file) -> pd.DataFrame:
@@ -36,10 +34,20 @@ def preprocess_csv(uploaded_file) -> pd.DataFrame:
 def render_sidebar():
     with st.sidebar:
         st.header("⚙️ Setup")
-        api_key = os.getenv("GEMINI_API_KEY")
+        api_key = get_secret("GEMINI_API_KEY")
         if not api_key:
             st.error("❌ GEMINI_API_KEY missing")
-            st.info("Add to .env file")
+            st.info("💡 Add to Streamlit secrets or .env file")
+            with st.expander("📋 How to configure"):
+                st.markdown("""
+                **Streamlit Cloud:**
+                1. Go to app settings
+                2. Open "Secrets" section
+                3. Add `GEMINI_API_KEY` with your key
+                
+                **Local Development:**
+                - Add to `.env` file or `.streamlit/secrets.toml`
+                """)
             return None
         try:
             genai.configure(api_key=api_key)

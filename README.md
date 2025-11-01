@@ -123,7 +123,9 @@ source venv/bin/activate  # On Windows: venv\Scripts\activate
 pip install -r requirements.txt
 ```
 
-### 4. Configure Environment Variables
+### 4. Configure Secrets/Environment Variables
+
+**Option A: Local Development (.env file)**
 Create `.env` file in the project root:
 ```env
 # AI Configuration
@@ -144,6 +146,23 @@ EMAIL_HOST_PASSWORD=your_gmail_app_password
 SMTP_SERVER=smtp.gmail.com
 SMTP_PORT=465
 ```
+
+**Option B: Streamlit Secrets (for Streamlit Cloud)**
+Create `.streamlit/secrets.toml` (copy from `.streamlit/secrets.toml.example`):
+```toml
+GEMINI_API_KEY = "your_gemini_api_key_here"
+TURSO_DB_URL = "libsql://your-database-name.turso.io"
+TURSO_DB_AUTH_TOKEN = "your_turso_auth_token"
+TWILIO_ACCOUNT_SID = "your_twilio_account_sid"
+TWILIO_AUTH_TOKEN = "your_twilio_auth_token"
+TWILIO_PHONE_NUMBER = "+1234567890"
+EMAIL_HOST_USER = "your_email@gmail.com"
+EMAIL_HOST_PASSWORD = "your_gmail_app_password"
+SMTP_SERVER = "smtp.gmail.com"
+SMTP_PORT = 465
+```
+
+**Note**: The app automatically uses Streamlit secrets if available, otherwise falls back to `.env` file.
 
 ### 5. Run Application
 ```bash
@@ -334,12 +353,48 @@ response = execute_and_summarize(prompt, df, model)
 
 ## 🚀 Deployment
 
-### Streamlit Cloud
+### Streamlit Cloud Deployment
 
-1. Push to GitHub
-2. Connect to Streamlit Cloud
-3. Add environment variables in dashboard
-4. Deploy!
+1. **Push to GitHub**
+   ```bash
+   git add .
+   git commit -m "Prepare for Streamlit Cloud"
+   git push origin main
+   ```
+
+2. **Deploy on Streamlit Cloud**
+   - Go to [share.streamlit.io](https://share.streamlit.io)
+   - Sign in with GitHub
+   - Click "New app"
+   - Select your repository and branch
+   - Set main file path: `app.py`
+
+3. **Configure Secrets** (IMPORTANT!)
+   - In app settings, go to "Secrets" section
+   - Add all required secrets in TOML format:
+   ```toml
+   GEMINI_API_KEY = "your_gemini_api_key_here"
+   TURSO_DB_URL = "libsql://your-database-name.turso.io"
+   TURSO_DB_AUTH_TOKEN = "your_turso_auth_token"
+   TWILIO_ACCOUNT_SID = "your_twilio_account_sid"
+   TWILIO_AUTH_TOKEN = "your_twilio_auth_token"
+   TWILIO_PHONE_NUMBER = "+1234567890"
+   EMAIL_HOST_USER = "your_email@gmail.com"
+   EMAIL_HOST_PASSWORD = "your_gmail_app_password"
+   SMTP_SERVER = "smtp.gmail.com"
+   SMTP_PORT = 465
+   ```
+   - Click "Save" - secrets are encrypted and secure
+
+4. **Deploy!**
+   - Click "Deploy"
+   - Your app will be live at `https://your-app-name.streamlit.app`
+
+**Security Notes:**
+- ✅ Secrets are encrypted at rest
+- ✅ Only accessible to your app
+- ✅ Never visible in app code or logs
+- ✅ `.streamlit/secrets.toml` is in `.gitignore` (never committed)
 
 ## 📝 Changelog
 

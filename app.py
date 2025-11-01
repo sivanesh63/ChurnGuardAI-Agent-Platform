@@ -1,6 +1,5 @@
 import logging
 import streamlit as st
-from dotenv import load_dotenv
 
 from ui.sidebar import render_sidebar
 from chat import render_chat_history, handle_user_query
@@ -11,7 +10,8 @@ from ui.monitor import render_monitor
 
 logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
-load_dotenv()
+
+# Note: Secrets are loaded via core.secrets which handles both Streamlit secrets and .env
 
 # ---------------------- CONFIG --------------------------
 st.set_page_config(page_title="ChurnGuard AI Agent", page_icon="📊", layout="wide")

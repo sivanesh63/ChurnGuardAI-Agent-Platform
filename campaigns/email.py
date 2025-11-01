@@ -11,10 +11,11 @@ logger = logging.getLogger(__name__)
 
 
 def send_email_campaign(targets_df: pd.DataFrame, email_col: str = None, name_col: str = None):
-    EMAIL_USER = os.getenv("EMAIL_HOST_USER")
-    EMAIL_PASS = os.getenv("EMAIL_HOST_PASSWORD")
-    SMTP_SERVER = os.getenv("SMTP_SERVER", "smtp.gmail.com")
-    SMTP_PORT = int(os.getenv("SMTP_PORT", 465))
+    from core.secrets import get_secret
+    EMAIL_USER = get_secret("EMAIL_HOST_USER")
+    EMAIL_PASS = get_secret("EMAIL_HOST_PASSWORD")
+    SMTP_SERVER = get_secret("SMTP_SERVER", "smtp.gmail.com")
+    SMTP_PORT = int(get_secret("SMTP_PORT", "465") or "465")
     detected_email_col = email_col or "Email"
     if detected_email_col not in targets_df.columns:
         logger.error("❌ Could not find an email column in results")

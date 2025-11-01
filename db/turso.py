@@ -33,8 +33,16 @@ def _get_or_create_event_loop():
 async def _create_turso_client_async():
     """Internal async function to create Turso client."""
     logger.info("[DB] Initializing Turso client")
-    db_url = os.getenv("TURSO_DB_URL")
-    db_token = os.getenv("TURSO_DB_AUTH_TOKEN")
+    try:
+        import streamlit as st
+        from core.secrets import get_secret
+        db_url = get_secret("TURSO_DB_URL")
+        db_token = get_secret("TURSO_DB_AUTH_TOKEN")
+    except Exception:
+        # Fallback to os.getenv if Streamlit not available
+        import os
+        db_url = os.getenv("TURSO_DB_URL")
+        db_token = os.getenv("TURSO_DB_AUTH_TOKEN")
 
     if not db_url:
         logger.error("[DB] TURSO_DB_URL not found in environment")
